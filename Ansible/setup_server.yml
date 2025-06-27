@@ -1,0 +1,140 @@
+---
+- name: Configure and update remote Linux server
+  hosts: remote_server
+  become: yes  # Enable sudo
+  vars:
+    packages_to_install:
+      - git
+      - vim
+      - curl
+      - htop
+    mysql_root_password: "secure_root_password_123"  # Replace with a strong password
+    postgres_password: "secure_postgres_password_123"  # Replace with a strong password
+    # backup_dir: "/var/backups"
+
+  tasks:
+    - name: Update package cache (Debian/Ubuntu)
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Upgrade all packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install common packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: "{{ packages_to_install }}"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install common packages (RedHat/CentOS)
+      ansible.builtin.dnf:
+        name: "{{ packages_to_install }}"
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    # - name: Create backup directory
+    #   ansible.builtin.file:
+    #     path: "{{ backup_dir }}"
+    #     state: directory
+    #     mode: "0755"
+    #     owner: root
+    #     group: root
+
+    - name: Install MariaDB (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - mariadb-server
+          - mariadb-client
+          - python3-mysqldb  # For Ansible MySQL modules
+        state: present
+      when: ansible_os_family == "Debian"
+
+    # - name: Install MariaDB (RedHat/CentOS)
+    #   ansible.builtin.dnf:
+    #     name:
+    #       - mariadb-server
+    #       - mariadb
+    #       - python3-PyMySQL  # For Ansible MySQL modules
+    #     state: present
+    #   when: ansible_os_family == "RedHat"
+
+    - name: Start and enable MariaDB service
+      ansible.builtin.service:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: Set MariaDB root password
+      ansible.builtin.mysql_user:
+        name: root
+        password: "{{ mysql_root_password }}"
+        host: localhost
+        state: present
+      no_log: true  # Hide password in logs
+
+    - name: Remove anonymous MySQL users
+      ansible.builtin.mysql_user:
+        name: ""
+        host_all: yes
+        state: absent
+
+    - name: Remove MySQL test database
+      ansible.builtin.mysql_db:
+        name: test
+        state: absent
+
+    - name: Install PostgreSQL (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+          - python3-psycopg2  # For Ansible PostgreSQL modules
+        state: present
+      when: ansible_os_family == "Debian"
+
+    # - name: Install PostgreSQL (RedHat/CentOS)
+    #   ansible.builtin.dnf:
+    #     name:
+    #       - postgresql-server
+    #       - postgresql-contrib
+    #       - python3-psycopg2  # For Ansible PostgreSQL modules
+    #     state: present
+    #   when: ansible_os_family == "RedHat"
+
+    # - name: Initialize PostgreSQL database (RedHat/CentOS)
+    #   ansible.builtin.command: postgresql-setup --initdb
+    #   args:
+    #     creates: /var/lib/pgsql/data/postgresql.conf
+    #   when: ansible_os_family == "RedHat"
+
+    - name: Start and enable PostgreSQL service
+      ansible.builtin.service:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: Set PostgreSQL password for postgres user
+      ansible.builtin.postgresql_user:
+        name: postgres
+        password: "{{ postgres_password }}"
+        state: present
+      become_user: postgres
+      no_log: true
+
+    - name: Ensure SSH is installed and running
+      ansible.builtin.package:
+        name: openssh-server
+        state: present
+      notify: Restart SSH
+
+  handlers:
+    - name: Restart SSH
+      ansible.builtin.service:
+        name: sshd
+        state: restarted
